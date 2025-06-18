@@ -147,6 +147,7 @@ type options struct {
 	checkMode    CheckMode
 	manifest     string
 	ignorePasswd bool
+	ignoreDecryptionErrors bool
 }
 
 type appContext struct {
@@ -336,11 +337,11 @@ func recurseSecretKey(keys map[string]interface{}, wantedKey string) (string, er
 	return strVal, nil
 }
 
-func decryptSecret(s *secret, sourceFiles map[string]plainData) error {
+func decryptSecret(s *secret, sourceFiles map[string]plainData, ignoreDecryptionErrors bool) error {
 	sourceFile := sourceFiles[s.SopsFile]
 	if sourceFile.data == nil || sourceFile.binary == nil {
 		plain, err := decrypt.File(s.SopsFile, string(s.Format))
-		if err != nil {
+		if !ignoreDecryptionErrors && err != nil {
 			return fmt.Errorf("failed to decrypt '%s': %w", s.SopsFile, err)
 		}
 
@@ -385,10 +386,10 @@ func decryptSecret(s *secret, sourceFiles map[string]plainData) error {
 	return nil
 }
 
-func decryptSecrets(secrets []secret) error {
+func decryptSecrets(secrets []secret, ignoreDecryptionErrors bool) error {
 	sourceFiles := make(map[string]plainData)
 	for i := range secrets {
-		if err := decryptSecret(&secrets[i], sourceFiles); err != nil {
+		if err := decryptSecret(&secrets[i], sourceFiles, ignoreDecryptionErrors); err != nil {
 			return err
 		}
 	}
@@ -1164,6 +1165,7 @@ func parseFlags(args []string) (*options, error) {
 	var checkMode string
 	fs.StringVar(&checkMode, "check-mode", "off", `Validate configuration without installing it (possible values: "manifest","sopsfile","off")`)
 	fs.BoolVar(&opts.ignorePasswd, "ignore-passwd", false, `Don't look up anything in /etc/passwd. Causes everything to be owned by root:root or the user executing the tool in user mode`)
+	fs.BoolVar(&opts.ignoreDecryptionErrors, "ignore-dec-errors", false, `Ignore sops decryption errors`)
 	if err := fs.Parse(args[1:]); err != nil {
 		return nil, err
 	}
@@ -1360,7 +1362,7 @@ func installSecrets(args []string) error {
 		}
 	}
 
-	if err := decryptSecrets(manifest.Secrets); err != nil {
+	if err := decryptSecrets(manifest.Secrets, opts.ignoreDecryptionErrors); err != nil {
 		return err
 	}
 
